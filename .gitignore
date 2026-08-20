@@ -1,0 +1,19 @@
+# Build output
+/build
+/bin
+/out
+/x64
+Source/x64
+*.exe
+*.obj
+
+# IDE
+.vscode/
+.vs/
+.idea/
+*.sln
+*.vcxproj*
+
+# OS
+.DS_Store
+Thumbs.db
