@@ -3,116 +3,85 @@
 
 void OrderBook::MatchBuy(Order& incoming)
 {
-    if (incoming.m_Quantity == 0)
+    for (Price price = MIN_PRICE; price <= incoming.m_Price; price++)
     {
-        return;
-    }
-
-    auto priceLevel = m_SellOrders.begin();
-
-    while (priceLevel != m_SellOrders.end())
-    {
-        double sellPrice = priceLevel->first;
-
-        // No more sellers can match.
-        if (sellPrice > incoming.m_Price)
+        if (incoming.m_Quantity == 0)
         {
-            break;
-        }
-            
-        std::vector<Order>& sellOrders = priceLevel->second;
-
-        for (auto it = sellOrders.begin(); it != sellOrders.end(); )
-        {
-            Order& sellOrder = *it;
-
-            u32 tradedQuantity = std::min(sellOrder.m_Quantity, incoming.m_Quantity);
-            sellOrder.m_Quantity -= tradedQuantity;
-            incoming.m_Quantity -= tradedQuantity;
-
-            if (sellOrder.m_Quantity == 0)
-            {
-                it = sellOrders.erase(it);
-            }
-            else
-            {
-                it++;
-            }
-
-            std::print("TRADE {} @ {}\n", tradedQuantity, sellOrder.m_Price);
+            return;
         }
 
-        if (sellOrders.empty())
+        PriceLevel& sellLevel = m_SellLevels[PriceToIndex(price)];
+        if (sellLevel.m_Orders.empty())
         {
-            priceLevel = m_SellOrders.erase(priceLevel);
+            continue;
         }
-        else
-        {
-            priceLevel++;
-        }   
+
+        MatchOrder(incoming, sellLevel);
     }
 }
 
 void OrderBook::MatchSell(Order& incoming)
 {
-    if (incoming.m_Quantity == 0)
+    for (Price price = MAX_PRICE; price >= incoming.m_Price; price--)
     {
-        return;
+        if (incoming.m_Quantity == 0)
+        {
+            return;
+        }
+
+        PriceLevel& buyLevel = m_BuyLevels[PriceToIndex(price)];
+        if (buyLevel.m_Orders.empty())
+        {
+            continue;
+        }
+
+        MatchOrder(incoming, buyLevel);
     }
+}
 
-    auto priceLevel = m_BuyOrders.rbegin();
-
-    while (priceLevel != m_BuyOrders.rend())
+void OrderBook::MatchOrder(Order& incoming, PriceLevel& priceLevel)
+{
+    for (auto it = priceLevel.m_Orders.begin(); it != priceLevel.m_Orders.end(); )
     {
-        double buyPrice = priceLevel->first;
-
-        // No more buyers can match.
-        if (buyPrice < incoming.m_Price)
+        if (incoming.m_Quantity == 0)
         {
-            break;
+            return;
         }
 
-        std::vector<Order>& buyOrders = priceLevel->second;
+        Order& order = *it;
 
-        for (auto it = buyOrders.begin(); it != buyOrders.end(); )
+        u32 tradedQuantity = std::min(order.m_Quantity, incoming.m_Quantity);
+        order.m_Quantity -= tradedQuantity;
+        incoming.m_Quantity -= tradedQuantity;
+        priceLevel.m_TotalQuantity -= tradedQuantity;
+
+        if (order.m_Quantity == 0)
         {
-            Order& buyOrder = *it;
-
-            u32 tradedQuantity = std::min(buyOrder.m_Quantity, incoming.m_Quantity);
-            buyOrder.m_Quantity -= tradedQuantity;
-            incoming.m_Quantity -= tradedQuantity;
-
-            if (buyOrder.m_Quantity == 0)
-            {
-                it = buyOrders.erase(it);
-            }
-            else
-            {
-                it++;
-            }
-
-            std::print("TRADE {} @ {}\n", tradedQuantity, buyOrder.m_Price);
-        }
-
-        if (buyOrders.empty())
-        {
-            break;
+            it = priceLevel.m_Orders.erase(it);
         }
         else
         {
-            priceLevel++;
+            it++;
         }
+
+        std::println("TRADE {} @ {} | Incoming: {}", tradedQuantity, order.m_Price, incoming.m_Side == Side::Buy ? "BUY" : "SELL");
     }
 }
 
 void OrderBook::AddOrder(Order order)
 {
-    if (order.m_IsBuy)
+    if (!IsValidPrice(order.m_Price))
+    {
+        return;
+    }
+
+    if (order.m_Side == Side::Buy)
     {
         MatchBuy(order);
         if (order.m_Quantity > 0)
         {
-            m_BuyOrders[order.m_Price].push_back(order);
+            m_BuyLevels[PriceToIndex(order.m_Price)].m_Orders.push_back(order);
+            m_BuyLevels[PriceToIndex(order.m_Price)].m_TotalQuantity += order.m_Quantity;
         }
     }
     else
@@ -120,7 +89,8 @@ void OrderBook::AddOrder(Order order)
         MatchSell(order);
         if (order.m_Quantity > 0)
         {
-            m_BuyOrders[order.m_Price].push_back(order);
+            m_SellLevels[PriceToIndex(order.m_Price)].m_Orders.push_back(order);
+            m_SellLevels[PriceToIndex(order.m_Price)].m_TotalQuantity += order.m_Quantity;
         } 
     }
 }
