@@ -1,61 +1,60 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
-set "SOLUTION=HFTStuff.sln"
+set "ROOT=%~dp0"
 set "CONFIG=Debug"
-set "PLATFORM=x64"
+set "ARCH=x64"
+set "ACTION=build"
 
-:: Parse arguments
 :parse_args
-if "%~1"=="" goto find_vs
-if /i "%~1"=="release" set "CONFIG=Release" & shift & goto parse_args
-if /i "%~1"=="debug" set "CONFIG=Debug" & shift & goto parse_args
-if /i "%~1"=="x86" set "PLATFORM=Win32" & shift & goto parse_args
-if /i "%~1"=="x64" set "PLATFORM=x64" & shift & goto parse_args
-if /i "%~1"=="open" goto open_vs
-if /i "%~1"=="--help" goto usage
-if /i "%~1"=="-h" goto usage
-shift
-goto parse_args
+if "%~1"=="" goto configure
+if /I "%~1"=="debug"   set "CONFIG=Debug"   & shift & goto parse_args
+if /I "%~1"=="release" set "CONFIG=Release" & shift & goto parse_args
+if /I "%~1"=="x64"     set "ARCH=x64"      & shift & goto parse_args
+if /I "%~1"=="x86"     set "ARCH=Win32"    & shift & goto parse_args
+if /I "%~1"=="configure" set "ACTION=configure" & shift & goto parse_args
+if /I "%~1"=="open"      set "ACTION=open"      & shift & goto parse_args
+if /I "%~1"=="--help" goto usage
+if /I "%~1"=="-h" goto usage
+echo ERROR: Unknown option "%~1".
+goto usage_error
 
-:find_vs
-echo ============================================
-echo  HFTStuff Build Script
-echo ============================================
-echo.
-echo Configuration: %CONFIG%
-echo Platform:      %PLATFORM%
-echo.
+:configure
+set "BUILD_DIR=%ROOT%Build\vs2022-%ARCH%"
+set "SOLUTION=%BUILD_DIR%\HFTStuff.sln"
+set "PROJECT_FILE=%BUILD_DIR%\HFTStuff.vcxproj"
 
-:: Find vswhere
-set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-if not exist "%VSWHERE%" (
-    echo ERROR: vswhere.exe not found. Is Visual Studio installed?
+where cmake >nul 2>nul
+if errorlevel 1 (
+    echo ERROR: CMake was not found on PATH.
     exit /b 1
 )
 
-:: Find VS installation path
-for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -requires Microsoft.Component.MSBuild -property installationPath`) do set "VS_PATH=%%i"
-if not defined VS_PATH (
-    echo ERROR: Could not find a Visual Studio installation with MSBuild.
+echo.
+echo Configuring Visual Studio 2022 project...
+echo   Architecture: %ARCH%
+echo   Build folder: %BUILD_DIR%
+:: Appending '.' prevents ROOT's trailing backslash from escaping the closing quote.
+cmake -S "%ROOT%." -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A %ARCH%
+if errorlevel 1 (
+    echo.
+    echo ERROR: CMake configuration failed.
+    echo If this folder was generated with a different generator, delete "%BUILD_DIR%" and run this script again.
     exit /b 1
 )
 
-:: Find MSBuild
-set "MSBUILD=%VS_PATH%\MSBuild\Current\Bin\MSBuild.exe"
-if not exist "%MSBUILD%" (
-    echo ERROR: MSBuild.exe not found at expected path.
-    exit /b 1
+if /I "%ACTION%"=="configure" (
+    echo.
+    echo Solution created: "%SOLUTION%"
+    exit /b 0
 )
 
-echo Found Visual Studio at: %VS_PATH%
-echo.
+if /I "%ACTION%"=="open" goto open_project
 
-:: Build
-echo Building %SOLUTION% ...
 echo.
-"%MSBUILD%" "%~dp0%SOLUTION%" /t:Build /p:Configuration=%CONFIG% /p:Platform=%PLATFORM% /m
-if %errorlevel% neq 0 (
+echo Building %CONFIG%...
+cmake --build "%BUILD_DIR%" --config %CONFIG% --target HFTStuff
+if errorlevel 1 (
     echo.
     echo BUILD FAILED.
     exit /b 1
@@ -63,38 +62,37 @@ if %errorlevel% neq 0 (
 
 echo.
 echo BUILD SUCCEEDED.
+echo Executable: "%BUILD_DIR%\bin\%CONFIG%\HFTStuff.exe"
 exit /b 0
 
-:open_vs
+:open_project
+if not exist "%PROJECT_FILE%" (
+    echo ERROR: Project was not created: "%PROJECT_FILE%"
+    exit /b 1
+)
+
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-if not exist "%VSWHERE%" (
-    echo ERROR: vswhere.exe not found. Is Visual Studio installed?
-    exit /b 1
+if exist "%VSWHERE%" (
+    for /f "usebackq delims=" %%I in (`"%VSWHERE%" -latest -products * -property productPath`) do set "DEVENV=%%I"
 )
-for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -property productPath`) do set "DEVENV=%%i"
-if not defined DEVENV (
-    echo ERROR: Could not find Visual Studio executable.
-    exit /b 1
+
+if defined DEVENV (
+    start "" "%DEVENV%" "%PROJECT_FILE%"
+) else (
+    start "" "%PROJECT_FILE%"
 )
-echo Opening %SOLUTION% in Visual Studio...
-start "" "%DEVENV%" "%~dp0%SOLUTION%"
 exit /b 0
 
 :usage
 echo.
-echo Usage: Build.bat [options]
+echo Usage: Build.bat [debug^|release] [x64^|x86] [configure^|open]
 echo.
-echo Options:
-echo   debug       Build Debug configuration (default)
-echo   release     Build Release configuration
-echo   x64         Build for x64 platform (default)
-echo   x86         Build for x86 platform
-echo   open        Open the solution in Visual Studio
-echo   --help, -h  Show this help message
-echo.
-echo Examples:
-echo   Build.bat                 Build Debug x64
-echo   Build.bat release         Build Release x64
-echo   Build.bat release x86     Build Release x86
-echo   Build.bat open            Open in Visual Studio
+echo   Build.bat                 Configure and build Debug x64.
+echo   Build.bat release         Configure and build Release x64.
+echo   Build.bat configure       Generate the VS2022 solution only.
+echo   Build.bat open            Generate and open only the HFTStuff project.
+echo   Build.bat release x86     Configure and build Release Win32.
 exit /b 0
+
+:usage_error
+exit /b 1
