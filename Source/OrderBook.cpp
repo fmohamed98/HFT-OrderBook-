@@ -14,7 +14,7 @@ void OrderBook::MatchBuy(Order& incoming)
             return;
         }
 
-        auto nextIndex = FindNextOccupied(m_SellBitMap, currentIndex);
+        auto nextIndex = FindNextOccupied(m_SellBitMap, m_SellSummary, currentIndex);
         if (!nextIndex || *nextIndex > maxIndex)
         {
             return;
@@ -24,7 +24,7 @@ void OrderBook::MatchBuy(Order& incoming)
         MatchOrder(incoming, sellLevel);
         if (sellLevel.m_Orders.empty())
         {
-            ClearOccupied(m_SellBitMap, *nextIndex);
+            ClearOccupied(m_SellBitMap, m_SellSummary, *nextIndex);
         }
 
         currentIndex = *nextIndex + 1;
@@ -44,7 +44,7 @@ void OrderBook::MatchSell(Order& incoming)
             return;
         }
 
-        auto nextIndex = FindPrevOccupied(m_SellBitMap, currentIndex);
+        auto nextIndex = FindPrevOccupied(m_SellBitMap, m_BuySummary, currentIndex);
         if (!nextIndex || *nextIndex < minIndex)
         {
             return;
@@ -54,7 +54,7 @@ void OrderBook::MatchSell(Order& incoming)
         MatchOrder(incoming, buyLevel);
         if (buyLevel.m_Orders.empty())
         {
-            ClearOccupied(m_SellBitMap, *nextIndex);
+            ClearOccupied(m_SellBitMap,m_BuySummary, *nextIndex);
         }
 
         if (*nextIndex == 0)
@@ -96,13 +96,13 @@ void OrderBook::MatchOrder(Order& incoming, PriceLevel& priceLevel)
     }
 }
 
-void OrderBook::AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray)
+void OrderBook::AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray, SummaryArray& summaryArray)
 {
     if (order.m_Quantity > 0)
     {
         if (priceLevel.m_Orders.empty())
         {
-            SetOccupied(bitMapArray, PriceToIndex(order.m_Price)); //only need to set if it was not set before
+            SetOccupied(bitMapArray, summaryArray, PriceToIndex(order.m_Price)); //only need to set if it was not set before
         }
         priceLevel.m_Orders.push_back(order);
         priceLevel.m_TotalQuantity += order.m_Quantity;
@@ -119,29 +119,44 @@ void OrderBook::AddOrder(Order order)
     if (order.m_Side == Side::Buy)
     {
         MatchBuy(order);
-        AddToBook(m_BuyLevels[PriceToIndex(order.m_Price)], order, m_BuyBitMap);
+        AddToBook(m_BuyLevels[PriceToIndex(order.m_Price)], order, m_BuyBitMap, m_BuySummary);
     }
     else
     {
         MatchSell(order);
-        AddToBook(m_SellLevels[PriceToIndex(order.m_Price)], order, m_SellBitMap);
+        AddToBook(m_SellLevels[PriceToIndex(order.m_Price)], order, m_SellBitMap, m_SellSummary);
     }
 }
 
-void OrderBook::SetOccupied(BitMapArray& bitMapArray, u64 index)
+void OrderBook::SetOccupied(BitMapArray& bitMapArray, SummaryArray& summaryArray, u64 index)
 {
     const u64 bitMapIndex = index / 64; //index of the corresponding bitmap holding the func input index
     const u64 bitIndex = index % 64; //index within the corresponding bitmap
 
     bitMapArray[bitMapIndex] |= u64{ 1 } << bitIndex;
+
+    const u64 summaryIndex  = bitMapIndex / 64;
+    const u64 summaryBitIndex = bitMapIndex % 64;
+
+    summaryArray[summaryIndex] |= u64{ 1 } << summaryBitIndex;
 }
 
-void OrderBook::ClearOccupied(BitMapArray& bitMapArray, u64 index)
+void OrderBook::ClearOccupied(BitMapArray& bitMapArray, SummaryArray& summaryArray, u64 index)
 {
     const u64 bitMapIndex = index / 64; //index of the corresponding bitmap holding the func input index
     const u64 bitIndex = index % 64; //index within the corresponding bitmap
 
     bitMapArray[bitMapIndex] &= ~(u64{ 1 } << bitIndex);
+
+    if (bitMapArray[bitMapIndex] != 0)
+    {
+        return;
+    }
+
+    const u64 summaryIndex = bitMapIndex / 64;
+    const u64 summaryBitIndex = bitMapIndex % 64;
+
+    summaryArray[summaryIndex] &= ~(u64{ 1 } << summaryBitIndex);
 }
 
 bool OrderBook::IsOccupied(const BitMapArray& bitMapArray, u64 index)
@@ -152,7 +167,7 @@ bool OrderBook::IsOccupied(const BitMapArray& bitMapArray, u64 index)
     return bitMapArray[bitMapIndex] & u64{ 1 } << bitIndex;
 }
 
-std::optional<u64> OrderBook::FindNextOccupied(const BitMapArray& bitMapArray, u64 currentIndex)
+std::optional<u64> OrderBook::FindNextOccupied(const BitMapArray& bitMapArray, const SummaryArray& summaryArray, u64 currentIndex)
 {
     u64 bitMapIndex = currentIndex / 64; //index of the corresponding bitmap holding the func input index
     u64 bitIndex = currentIndex % 64; //index within the corresponding bitmap
@@ -167,23 +182,46 @@ std::optional<u64> OrderBook::FindNextOccupied(const BitMapArray& bitMapArray, u
         return bitMapIndex * 64 + std::countr_zero(bitMap);
     }
 
-    bitMapIndex++;
-    while (bitMapIndex < BITMAP_NUM)
+    u64 summaryIndex = bitMapIndex / 64;
+    u64 summaryBitIndex = bitMapIndex % 64;
+
+    u64 summary = summaryArray[summaryIndex];
+    u64 summaryMask = ~u64{ 0 } << (summaryBitIndex + 1); //Shifting beyond the current bitMap
+
+    summary &= summaryBitIndex < 63 ? summaryMask : 0; //shifting beyond 64 bits is undefined behaviour
+
+    if (summary != 0)
     {
-        bitMap = bitMapArray[bitMapIndex];
+        const u64 occupiedSummaryBit = std::countr_zero(summary);
 
-        if (bitMap != 0)
-        {
-            return bitMapIndex * 64 + std::countr_zero(bitMap);
-        }
+        const u64 nextBitMapIndex = summaryIndex * 64 + occupiedSummaryBit;
+        const u64 nextBitMapBit = std::countr_zero(bitMapArray[nextBitMapIndex]);
 
-        bitMapIndex++;
+        return nextBitMapIndex * 64 + nextBitMapBit;
     }
 
-    return std::optional<u64>();
+    summaryIndex++;
+    while (summaryIndex < SUMMARY_NUM)
+    {
+        summary = summaryArray[summaryIndex];
+
+        if (summary != 0)
+        {
+            const u64 occupiedSummaryBit = std::countr_zero(summary);
+
+            const u64 nextBitMapIndex = summaryIndex * 64 + occupiedSummaryBit;
+            const u64 nextBitMapBit = std::countr_zero(bitMapArray[nextBitMapIndex]);
+
+            return nextBitMapIndex * 64 + nextBitMapBit;
+        }
+
+        summaryIndex++;
+    }
+
+    return std::nullopt;
 }
 
-std::optional<u64> OrderBook::FindPrevOccupied(const BitMapArray& bitMapArray, u64 currentIndex)
+std::optional<u64> OrderBook::FindPrevOccupied(const BitMapArray& bitMapArray, const SummaryArray& summaryArray, u64 currentIndex)
 {
     u64 bitMapIndex = currentIndex / 64; //index of the corresponding bitmap holding the func input index
     u64 bitIndex = currentIndex % 64; //index within the corresponding bitmap
@@ -198,16 +236,40 @@ std::optional<u64> OrderBook::FindPrevOccupied(const BitMapArray& bitMapArray, u
         return bitMapIndex * 64 + (63 - std::countl_zero(bitMap));
     }
 
-    while (bitMapIndex > 0)
+    u64 summaryIndex = bitMapIndex / 64;
+    u64 summaryBitIndex = bitMapIndex % 64;
+
+    u64 summary = summaryArray[summaryIndex];
+    u64 summaryMask = ~u64{ 0 } >> (64 - summaryBitIndex); //63 + 1 as we don't need the current index
+
+    summary &= summaryBitIndex > 0 ? summaryMask : 0;
+
+    if (summary != 0)
     {
-        bitMapIndex--;
+        const u64 occupiedSummaryBit = 63 - std::countl_zero(summary);
 
-        bitMap = bitMapArray[bitMapIndex];
+        const u64 prevBitMapIndex = summaryIndex * 64 + occupiedSummaryBit;
+        const u64 prevBitMapBit = 63 - std::countl_zero(bitMapArray[prevBitMapIndex]);
 
-        if (bitMap != 0)
+        return prevBitMapIndex * 64 + prevBitMapBit;
+    }
+
+    while (summaryIndex > 0)
+    {
+        summaryIndex--;
+
+        summary = summaryArray[summaryIndex];
+
+        if (summary != 0)
         {
-           return bitMapIndex * 64 + (63 - std::countl_zero(bitMap));
+            const u64 occupiedSummaryBit = 63 - std::countl_zero(summary);
+
+            const u64 prevBitMapIndex = summaryIndex * 64 + occupiedSummaryBit;
+            const u64 prevBitMapBit = 63 - std::countl_zero(bitMapArray[prevBitMapIndex]);
+
+            return prevBitMapIndex * 64 + prevBitMapBit;
         }
     }
-    return std::optional<u64>();
+
+    return std::nullopt;
 }

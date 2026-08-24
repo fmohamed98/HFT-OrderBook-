@@ -30,6 +30,7 @@ private:
     static constexpr u64 SUMMARY_NUM = (BITMAP_NUM + 63) / 64;
 
     using BitMapArray = std::array<u64, BITMAP_NUM>;
+    using SummaryArray = std::array<u64, SUMMARY_NUM>;
 
     inline Price PriceToIndex(Price price) const { return price - MIN_PRICE;}
     inline bool IsValidPrice(Price price) const { return price >= MIN_PRICE && price <= MAX_PRICE; }
@@ -37,22 +38,27 @@ private:
     void MatchBuy(Order& order);
     void MatchSell(Order& order);
     void MatchOrder(Order& order, PriceLevel& level);
-    void AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray);
+    void AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray, SummaryArray& summaryArray);
     
     std::array<PriceLevel, NUM_PRICE_LEVELS> m_BuyLevels;
     std::array<PriceLevel, NUM_PRICE_LEVELS> m_SellLevels;
 
+    //A binary(0/1) representation of occupied PriceLevels. Each entry is a 64 bit binary where each bit corresponds to a PriceLevel
     BitMapArray m_BuyBitMap;
     BitMapArray m_SellBitMap;
+
+    //A binary(0/1) representation of bitmaps that are not 0. Each entry is a 64 bit binary where each bit corresponds to a Bitmap
+    SummaryArray m_BuySummary;
+    SummaryArray m_SellSummary;
 
 public:
     void AddOrder(Order order);
 
-    void SetOccupied(BitMapArray& bitMapArray, u64 index);
-    void ClearOccupied(BitMapArray& bitMapArray, u64 index);
+    void SetOccupied(BitMapArray& bitMapArray, SummaryArray& summaryArray, u64 index);
+    void ClearOccupied(BitMapArray& bitMapArray, SummaryArray& summaryArray, u64 index);
     bool IsOccupied(const BitMapArray& bitMapArray, u64 index);
 
-    std::optional<u64> FindNextOccupied(const BitMapArray& bitMapArray, u64 currentOccupiedIndex);
-    std::optional<u64> FindPrevOccupied(const BitMapArray& bitMapArray, u64 currentOccupiedIndex);
+    std::optional<u64> FindNextOccupied(const BitMapArray& bitMapArray, const SummaryArray& summaryArray, u64 currentOccupiedIndex);
+    std::optional<u64> FindPrevOccupied(const BitMapArray& bitMapArray, const SummaryArray& summaryArray, u64 currentOccupiedIndex);
 };
 
