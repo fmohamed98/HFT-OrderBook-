@@ -27,6 +27,9 @@ private:
     static constexpr Price NUM_PRICE_LEVELS = MAX_PRICE - MIN_PRICE + 1;
 
     static constexpr u64 BITMAP_NUM = (NUM_PRICE_LEVELS + 63) / 64;
+    static constexpr u64 SUMMARY_NUM = (BITMAP_NUM + 63) / 64;
+
+    using BitMapArray = std::array<u64, BITMAP_NUM>;
 
     inline Price PriceToIndex(Price price) const { return price - MIN_PRICE;}
     inline bool IsValidPrice(Price price) const { return price >= MIN_PRICE && price <= MAX_PRICE; }
@@ -34,22 +37,22 @@ private:
     void MatchBuy(Order& order);
     void MatchSell(Order& order);
     void MatchOrder(Order& order, PriceLevel& level);
-    void AddToBook(PriceLevel& priceLevel, const Order& order, std::array<u64, BITMAP_NUM>& bitMapArray);
+    void AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray);
     
     std::array<PriceLevel, NUM_PRICE_LEVELS> m_BuyLevels;
     std::array<PriceLevel, NUM_PRICE_LEVELS> m_SellLevels;
 
-    std::array<u64, BITMAP_NUM> m_BuyBitMap;
-    std::array<u64, BITMAP_NUM> m_SellBitMap;
+    BitMapArray m_BuyBitMap;
+    BitMapArray m_SellBitMap;
 
 public:
     void AddOrder(Order order);
 
-    void SetOccupied(std::array<u64, BITMAP_NUM>& bitMapArray, u64 index);
-    void ClearOccupied(std::array<u64, BITMAP_NUM>& bitMapArray, u64 index);
-    bool IsOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 index);
+    void SetOccupied(BitMapArray& bitMapArray, u64 index);
+    void ClearOccupied(BitMapArray& bitMapArray, u64 index);
+    bool IsOccupied(const BitMapArray& bitMapArray, u64 index);
 
-    std::optional<u64> FindNextOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 currentOccupiedIndex);
-    std::optional<u64> FindPrevOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 currentOccupiedIndex);
+    std::optional<u64> FindNextOccupied(const BitMapArray& bitMapArray, u64 currentOccupiedIndex);
+    std::optional<u64> FindPrevOccupied(const BitMapArray& bitMapArray, u64 currentOccupiedIndex);
 };
 

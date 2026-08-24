@@ -96,7 +96,7 @@ void OrderBook::MatchOrder(Order& incoming, PriceLevel& priceLevel)
     }
 }
 
-void OrderBook::AddToBook(PriceLevel& priceLevel, const Order& order, std::array<u64, BITMAP_NUM>& bitMapArray)
+void OrderBook::AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray)
 {
     if (order.m_Quantity > 0)
     {
@@ -128,7 +128,7 @@ void OrderBook::AddOrder(Order order)
     }
 }
 
-void OrderBook::SetOccupied(std::array<u64, BITMAP_NUM>& bitMapArray, u64 index)
+void OrderBook::SetOccupied(BitMapArray& bitMapArray, u64 index)
 {
     const u64 bitMapIndex = index / 64; //index of the corresponding bitmap holding the func input index
     const u64 bitIndex = index % 64; //index within the corresponding bitmap
@@ -136,7 +136,7 @@ void OrderBook::SetOccupied(std::array<u64, BITMAP_NUM>& bitMapArray, u64 index)
     bitMapArray[bitMapIndex] |= u64{ 1 } << bitIndex;
 }
 
-void OrderBook::ClearOccupied(std::array<u64, BITMAP_NUM>& bitMapArray, u64 index)
+void OrderBook::ClearOccupied(BitMapArray& bitMapArray, u64 index)
 {
     const u64 bitMapIndex = index / 64; //index of the corresponding bitmap holding the func input index
     const u64 bitIndex = index % 64; //index within the corresponding bitmap
@@ -144,7 +144,7 @@ void OrderBook::ClearOccupied(std::array<u64, BITMAP_NUM>& bitMapArray, u64 inde
     bitMapArray[bitMapIndex] &= ~(u64{ 1 } << bitIndex);
 }
 
-bool OrderBook::IsOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 index)
+bool OrderBook::IsOccupied(const BitMapArray& bitMapArray, u64 index)
 {
     const u64 bitMapIndex = index / 64; //index of the corresponding bitmap holding the func input index
     const u64 bitIndex = index % 64; //index within the corresponding bitmap
@@ -152,7 +152,7 @@ bool OrderBook::IsOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 i
     return bitMapArray[bitMapIndex] & u64{ 1 } << bitIndex;
 }
 
-std::optional<u64> OrderBook::FindNextOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 currentIndex)
+std::optional<u64> OrderBook::FindNextOccupied(const BitMapArray& bitMapArray, u64 currentIndex)
 {
     u64 bitMapIndex = currentIndex / 64; //index of the corresponding bitmap holding the func input index
     u64 bitIndex = currentIndex % 64; //index within the corresponding bitmap
@@ -168,7 +168,7 @@ std::optional<u64> OrderBook::FindNextOccupied(const std::array<u64, BITMAP_NUM>
     }
 
     bitMapIndex++;
-    while (bitMapIndex > 0)
+    while (bitMapIndex < BITMAP_NUM)
     {
         bitMap = bitMapArray[bitMapIndex];
 
@@ -183,7 +183,7 @@ std::optional<u64> OrderBook::FindNextOccupied(const std::array<u64, BITMAP_NUM>
     return std::optional<u64>();
 }
 
-std::optional<u64> OrderBook::FindPrevOccupied(const std::array<u64, BITMAP_NUM>& bitMapArray, u64 currentIndex)
+std::optional<u64> OrderBook::FindPrevOccupied(const BitMapArray& bitMapArray, u64 currentIndex)
 {
     u64 bitMapIndex = currentIndex / 64; //index of the corresponding bitmap holding the func input index
     u64 bitIndex = currentIndex % 64; //index within the corresponding bitmap
