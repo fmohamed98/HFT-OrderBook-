@@ -1,130 +1,265 @@
 #include "OrderBook.h"
 #include <print>
 
-void OrderBook::MatchBuy(Order& incoming)
+OrderBook::OrderBook()
+{
+    m_OrderPool.reserve(100'000);
+    m_OrderLookup.reserve(100'000);
+}
+
+void OrderBook::MatchBuy(u64 orderId, Price price, u32& quantity)
 {
     const u64 startIndex = PriceToIndex(MIN_PRICE);
-    const u64 maxIndex = PriceToIndex(incoming.m_Price);
 
-    u64 currentIndex = startIndex;
-    while (currentIndex <= maxIndex)
+    while (quantity > 0)
     {
-        if (incoming.m_Quantity == 0)
+        const auto bestAskIndex = FindNextOccupied(m_SellBitMap, m_SellSummary, startIndex);
+        if (!bestAskIndex)
         {
             return;
         }
 
-        auto nextIndex = FindNextOccupied(m_SellBitMap, m_SellSummary, currentIndex);
-        if (!nextIndex || *nextIndex > maxIndex)
+        const Price bestAsk = IndexToPrice(*bestAskIndex);
+        if (bestAsk > price)
         {
             return;
         }
 
-        PriceLevel& sellLevel = m_SellLevels[*nextIndex];
-        MatchOrder(incoming, sellLevel);
-        if (sellLevel.m_Orders.empty())
+        PriceLevel& sellLevel = m_SellLevels[*bestAskIndex];
+        while (quantity > 0 && sellLevel.m_Head != INVALID_ORDER)
         {
-            ClearOccupied(m_SellBitMap, m_SellSummary, *nextIndex);
-        }
+            const u32 orderIndex = sellLevel.m_Head;
+            Order& restingOrder = m_OrderPool[orderIndex];
+            const u32 tradedQuantity = std::min(restingOrder.m_Quantity, quantity);
 
-        currentIndex = *nextIndex + 1;
+            const OrderInfo info{ *bestAskIndex, orderIndex, Side::Sell };
+
+            std::println(
+                "TRADE: BUY {} matched SELL {} @ {} x {}",
+                orderId,
+                restingOrder.m_ID,
+                bestAsk,
+                tradedQuantity);
+
+            quantity -= tradedQuantity;
+
+            FillRestingOrder(info, tradedQuantity);
+
+            if (restingOrder.m_Quantity == 0)
+            {
+                RemoveOrder(info);
+            }
+        }
     }
 }
 
-void OrderBook::MatchSell(Order& incoming)
+void OrderBook::MatchSell(u64 orderId, Price price, u32& quantity)
 {
     const u64 startIndex = PriceToIndex(MAX_PRICE);
-    const u64 minIndex = PriceToIndex(incoming.m_Price);
-
-    u64 currentIndex = startIndex;
-    while (currentIndex >= minIndex)
+    
+    while (quantity > 0)
     {
-        if (incoming.m_Quantity == 0)
+        const auto bestBidIndex = FindPrevOccupied(m_BuyBitMap, m_BuySummary, startIndex);
+        if (!bestBidIndex)
         {
             return;
         }
 
-        auto nextIndex = FindPrevOccupied(m_SellBitMap, m_BuySummary, currentIndex);
-        if (!nextIndex || *nextIndex < minIndex)
+        const Price bestBid = IndexToPrice(*bestBidIndex);
+        if (bestBid < price)
         {
             return;
         }
 
-        PriceLevel& buyLevel = m_BuyLevels[*nextIndex];
-        MatchOrder(incoming, buyLevel);
-        if (buyLevel.m_Orders.empty())
+        PriceLevel& buyLevel = m_BuyLevels[*bestBidIndex];
+        while (quantity > 0 && buyLevel.m_Head != INVALID_ORDER)
         {
-            ClearOccupied(m_SellBitMap,m_BuySummary, *nextIndex);
-        }
+            const u32 orderIndex = buyLevel.m_Head;
+            Order& restingOrder = m_OrderPool[orderIndex];
+            const u32 tradedQuantity = std::min(restingOrder.m_Quantity, quantity);
 
-        if (*nextIndex == 0)
-        {
-            return;
-        }
+            const OrderInfo info{ *bestBidIndex, orderIndex, Side::Buy };
 
-        currentIndex = *nextIndex - 1;
+            std::println(
+                "TRADE: SELL {} matched BUY {} @ {} x {}",
+                orderId,
+                restingOrder.m_ID,
+                bestBid,
+                tradedQuantity);
+
+            quantity -= tradedQuantity;
+
+            FillRestingOrder(info, tradedQuantity);
+
+            if (restingOrder.m_Quantity == 0)
+            {
+                RemoveOrder(info);
+            }
+        }
     }
 
 }
 
-void OrderBook::MatchOrder(Order& incoming, PriceLevel& priceLevel)
+void OrderBook::MatchOrder(u64 orderId, Side side, Price price, u32& quantity)
 {
-    for (auto it = priceLevel.m_Orders.begin(); it != priceLevel.m_Orders.end(); )
+    if (side == Side::Buy)
     {
-        if (incoming.m_Quantity == 0)
-        {
-            return;
-        }
-
-        Order& order = *it;
-
-        u32 tradedQuantity = std::min(order.m_Quantity, incoming.m_Quantity);
-        order.m_Quantity -= tradedQuantity;
-        incoming.m_Quantity -= tradedQuantity;
-        priceLevel.m_TotalQuantity -= tradedQuantity;
-
-        if (order.m_Quantity == 0)
-        {
-            it = priceLevel.m_Orders.erase(it);
-        }
-        else
-        {
-            it++;
-        }
-
-        std::println("TRADE {} @ {} | Incoming: {}", tradedQuantity, order.m_Price, incoming.m_Side == Side::Buy ? "BUY" : "SELL");
+        MatchBuy(orderId, price, quantity);
+    }
+    else
+    {
+        MatchSell(orderId, price, quantity);
     }
 }
 
-void OrderBook::AddToBook(PriceLevel& priceLevel, const Order& order, BitMapArray& bitMapArray, SummaryArray& summaryArray)
+void OrderBook::FillRestingOrder(const OrderInfo& orderInfo, u32 tradedQuantity)
 {
-    if (order.m_Quantity > 0)
-    {
-        if (priceLevel.m_Orders.empty())
-        {
-            SetOccupied(bitMapArray, summaryArray, PriceToIndex(order.m_Price)); //only need to set if it was not set before
-        }
-        priceLevel.m_Orders.push_back(order);
-        priceLevel.m_TotalQuantity += order.m_Quantity;
-    }
+    const u64 priceIndex = orderInfo.m_PriceIndex;
+    const u32 orderIndex = orderInfo.m_OrderIndex;
+
+    PriceLevel& priceLevel = orderInfo.m_Side == Side::Buy ? m_BuyLevels[priceIndex] : m_SellLevels[priceIndex];
+    Order& order = m_OrderPool[orderIndex];
+
+    order.m_Quantity -= tradedQuantity;
+    priceLevel.m_TotalQuantity -= tradedQuantity;
 }
 
-void OrderBook::AddOrder(Order order)
+u32 OrderBook::AllocateOrder()
 {
-    if (!IsValidPrice(order.m_Price))
+    if (m_FreeOrderHead != INVALID_ORDER)
+    {
+        const u32 orderIndex = m_FreeOrderHead;
+        m_FreeOrderHead = m_OrderPool[orderIndex].m_Next;
+
+        return orderIndex;
+    }
+
+    const u32 orderIndex = static_cast<u32>(m_OrderPool.size());
+    m_OrderPool.emplace_back();
+
+    return orderIndex;
+}
+
+void OrderBook::FreeOrder(u32 orderIndex)
+{
+    Order& order = m_OrderPool[orderIndex];
+    order.m_Next = m_FreeOrderHead;
+    m_FreeOrderHead = orderIndex;
+}
+
+void OrderBook::AddOrderToLevel(u64 orderId, Side side, u64 priceIndex, u32 quantity)
+{
+    const u32 orderIndex = AllocateOrder();
+    Order& order = m_OrderPool[orderIndex];
+    order = Order{ orderId, quantity, INVALID_ORDER, INVALID_ORDER };
+    PriceLevel& priceLevel = side == Side::Buy ? m_BuyLevels[priceIndex] : m_SellLevels[priceIndex];
+    
+    const bool wasEmpty = priceLevel.m_Head == INVALID_ORDER;
+    if (wasEmpty) //empty
+    {
+        priceLevel.m_Head = orderIndex;
+        priceLevel.m_Tail = orderIndex;
+    }
+    else
+    {
+        Order& tailOrder = m_OrderPool[priceLevel.m_Tail];
+
+        tailOrder.m_Next = orderIndex;
+        order.m_Prev = priceLevel.m_Tail;
+        priceLevel.m_Tail = orderIndex;
+    }
+    priceLevel.m_TotalQuantity += order.m_Quantity;
+
+    m_OrderLookup.try_emplace(orderId, priceIndex, orderIndex, side);
+
+    if (!wasEmpty)
     {
         return;
     }
 
-    if (order.m_Side == Side::Buy)
+    if (side == Side::Buy)
     {
-        MatchBuy(order);
-        AddToBook(m_BuyLevels[PriceToIndex(order.m_Price)], order, m_BuyBitMap, m_BuySummary);
+        SetOccupied(m_BuyBitMap, m_BuySummary, priceIndex);
     }
     else
     {
-        MatchSell(order);
-        AddToBook(m_SellLevels[PriceToIndex(order.m_Price)], order, m_SellBitMap, m_SellSummary);
+        SetOccupied(m_SellBitMap, m_SellSummary, priceIndex);
+    }
+}
+
+void OrderBook::AddOrder(u64 orderId, Side side, Price price, u32 quantity)
+{
+    if (!IsValidPrice(price) || quantity == 0)
+    {
+        return;
+    }
+
+    MatchOrder(orderId, side, price, quantity);
+
+    if (quantity > 0)
+    {
+        AddOrderToLevel(orderId, side, PriceToIndex(price), quantity);
+    }
+}
+
+void OrderBook::CancelOrder(u64 orderID)
+{
+    const auto it = m_OrderLookup.find(orderID);
+
+    if (it == m_OrderLookup.end())
+    {
+        return;
+    }
+
+    RemoveOrder(it->second);
+}
+
+void OrderBook::RemoveOrder(const OrderInfo& orderInfo)
+{
+    const u32 orderIndex = orderInfo.m_OrderIndex;
+    const u64 priceIndex = orderInfo.m_PriceIndex;
+
+    Order& order = m_OrderPool[orderIndex];
+    PriceLevel& priceLevel = orderInfo.m_Side == Side::Buy ? m_BuyLevels[priceIndex] : m_SellLevels[priceIndex];
+
+    if (order.m_Prev != INVALID_ORDER) //not head, there is a previous order
+    {
+        Order& prevOrder = m_OrderPool[order.m_Prev];
+        prevOrder.m_Next = order.m_Next;
+    }
+    else //order was head
+    {
+        priceLevel.m_Head = order.m_Next;
+    }
+
+    if (order.m_Next != INVALID_ORDER) //not tail, there is a next order
+    {
+        Order& nextOrder = m_OrderPool[order.m_Next];
+        nextOrder.m_Prev = order.m_Prev;
+    }
+    else //order was tail
+    {
+        priceLevel.m_Tail = order.m_Prev;
+    }
+
+    priceLevel.m_TotalQuantity -= order.m_Quantity;
+
+    m_OrderLookup.erase(order.m_ID);
+
+    FreeOrder(orderIndex);
+
+    if (priceLevel.m_Head != INVALID_ORDER) //not empty
+    {
+        return;
+    }
+
+    if (orderInfo.m_Side == Side::Buy)
+    {
+        ClearOccupied(m_BuyBitMap, m_BuySummary, priceIndex);
+    }
+    else
+    {
+        ClearOccupied(m_SellBitMap, m_SellSummary, priceIndex);
     }
 }
 
