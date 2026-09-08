@@ -9,11 +9,11 @@ OrderBook::OrderBook()
 
 void OrderBook::MatchBuy(u64 orderId, Price price, u32& quantity)
 {
-    const u64 startIndex = PriceToIndex(MIN_PRICE);
+    u64 searchIndex = PriceToIndex(MIN_PRICE);
 
     while (quantity > 0)
     {
-        const auto bestAskIndex = FindNextOccupied(m_SellBitMap, m_SellSummary, startIndex);
+        const auto bestAskIndex = FindNextOccupied(m_SellBitMap, m_SellSummary, searchIndex);
         if (!bestAskIndex)
         {
             return;
@@ -50,16 +50,28 @@ void OrderBook::MatchBuy(u64 orderId, Price price, u32& quantity)
                 RemoveOrder(info);
             }
         }
+
+        if (quantity == 0)
+        {
+            return;
+        }
+
+        if (*bestAskIndex == NUM_PRICE_LEVELS - 1)
+        {
+            return;
+        }
+
+        searchIndex = *bestAskIndex + 1;
     }
 }
 
 void OrderBook::MatchSell(u64 orderId, Price price, u32& quantity)
 {
-    const u64 startIndex = PriceToIndex(MAX_PRICE);
+    u64 searchIndex = PriceToIndex(MAX_PRICE);
     
     while (quantity > 0)
     {
-        const auto bestBidIndex = FindPrevOccupied(m_BuyBitMap, m_BuySummary, startIndex);
+        const auto bestBidIndex = FindPrevOccupied(m_BuyBitMap, m_BuySummary, searchIndex);
         if (!bestBidIndex)
         {
             return;
@@ -96,6 +108,18 @@ void OrderBook::MatchSell(u64 orderId, Price price, u32& quantity)
                 RemoveOrder(info);
             }
         }
+
+        if (quantity == 0)
+        {
+            return;
+        }
+
+        if (*bestBidIndex == 0)
+        {
+            return;
+        }
+
+        searchIndex = *bestBidIndex - 1;
     }
 
 }
