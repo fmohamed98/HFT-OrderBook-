@@ -34,12 +34,14 @@ void OrderBook::MatchBuy(u64 orderId, Price price, u32& quantity)
 
             const OrderInfo info{ *bestAskIndex, orderIndex, Side::Sell };
 
+#ifndef NDEBUG
             std::println(
-                "TRADE: BUY {} matched SELL {} @ {} x {}",
+                "TRADE: BUY Order - {} matched SELL Order - {} @ {} x {}",
                 orderId,
                 restingOrder.m_ID,
                 bestAsk,
                 tradedQuantity);
+#endif
 
             quantity -= tradedQuantity;
 
@@ -92,12 +94,14 @@ void OrderBook::MatchSell(u64 orderId, Price price, u32& quantity)
 
             const OrderInfo info{ *bestBidIndex, orderIndex, Side::Buy };
 
+#ifndef NDEBUG
             std::println(
-                "TRADE: SELL {} matched BUY {} @ {} x {}",
+                "TRADE: SELL Order - {} matched BUY Order - {} @ {} x {}",
                 orderId,
                 restingOrder.m_ID,
                 bestBid,
                 tradedQuantity);
+#endif
 
             quantity -= tradedQuantity;
 
