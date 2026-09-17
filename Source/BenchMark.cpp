@@ -98,7 +98,7 @@ namespace
         std::println(
             "  Max:         {} ns",
             result.m_Maximum);
-        std::println();
+        //std::println();
     }
 }
 
@@ -110,7 +110,7 @@ void Benchmark::Run()
     std::println("Operations: {}", NUM_OPERATIONS);
     std::println("Warm-up runs: {}", NUM_WARMUP_RUNS);
     std::println("Benchmark runs: {}", NUM_BENCHMARK_RUNS);
-    std::println();
+    //std::println();
 
     BenchmarkAdd();
     BenchmarkCancel();
@@ -155,7 +155,7 @@ void Benchmark::BenchmarkAdd()
         "  Operations/sec: {:.2f}",
         operationsPerSecond);
 
-    std::println();
+    //std::println();
 }
 
 void Benchmark::BenchmarkCancel()
@@ -200,7 +200,7 @@ void Benchmark::BenchmarkCancel()
         "  Operations/sec: {:.2f}",
         operationsPerSecond);
 
-    std::println();
+    //std::println();
 }
 
 void Benchmark::BenchmarkMatch()
@@ -246,7 +246,7 @@ void Benchmark::BenchmarkMatch()
         "  Matches/sec: {:.2f}",
         matchesPerSecond);
 
-    std::println();
+    //std::println();
 }
 
 void Benchmark::BenchmarkDenseBitmapSearch()
@@ -297,7 +297,7 @@ void Benchmark::BenchmarkDenseBitmapSearch()
     std::println("  Average:     {:.2f} ns", result.m_Average);
     std::println("  Max:         {} ns", result.m_Maximum);
     std::println("  Median ns/op: {:.2f}", nsPerOperation);
-    std::println();
+    //std::println();
 }
 
 void Benchmark::BenchmarkSparseBitmapSearch()
@@ -354,5 +354,5 @@ void Benchmark::BenchmarkSparseBitmapSearch()
     std::println("  Average:     {:.2f} ns", result.m_Average);
     std::println("  Max:         {} ns", result.m_Maximum);
     std::println("  Median ns/op: {:.2f}", nsPerOperation);
-    std::println();
+    //std::println();
 }

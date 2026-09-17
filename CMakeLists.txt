@@ -19,6 +19,9 @@ add_executable(HFTStuff
     Source/OrderBook.cpp
     Source/OrderBook.h
     Source/Defines.h
+    Source/Benchmark.h
+    Source/Benchmark.cpp
+
 )
 
 target_include_directories(HFTStuff
